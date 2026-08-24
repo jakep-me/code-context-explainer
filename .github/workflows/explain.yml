@@ -1,0 +1,71 @@
+name: Explain
+
+# Triggered when someone comments "/explain <file>:<line>" on an issue or PR.
+# Read-only by design: it only replies with a comment, no other side effects.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  explain:
+    if: startsWith(github.event.comment.body, '/explain ')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history is required for git blame to work correctly
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Extract target from comment
+        id: parse
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          TARGET=$(echo "$BODY" | sed -n 's/^\/explain[[:space:]]\+//p' | head -n1 | tr -d '\r')
+          if [ -z "$TARGET" ]; then
+            echo "error=Could not parse a target from the comment. Use: /explain path/to/file.py:42" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run explain.py
+        id: run
+        if: steps.parse.outputs.target != ''
+        run: |
+          OUTPUT=$(python explain.py "${{ steps.parse.outputs.target }}" 2>&1) || true
+          {
+            echo "output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post result as comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const target = `${{ steps.parse.outputs.target }}`;
+            const parseError = `${{ steps.parse.outputs.error }}`;
+            const output = `${{ steps.run.outputs.output }}`;
+
+            const body = parseError
+              ? `⚠️ ${parseError}`
+              : `**code-context-explainer** result for \`${target}\`:\n\n\`\`\`\n${output}\n\`\`\``;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
