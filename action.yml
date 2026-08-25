@@ -1,0 +1,38 @@
+name: 'Code Context Explainer'
+description: 'Explains why a line of code looks the way it does, by connecting git blame with the linked PR/issue.'
+author: 'jakep-me'
+
+inputs:
+  target:
+    description: 'File and line to explain, e.g. src/app.py:42'
+    required: true
+  github-token:
+    description: 'Token used to call the GitHub API (raises rate limit). Defaults to the caller workflow token.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  result:
+    description: 'The explanation output as plain text'
+    value: ${{ steps.run.outputs.output }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Run explain.py against the caller's repo
+      id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        OUTPUT=$(python "${{ github.action_path }}/explain.py" "${{ inputs.target }}" 2>&1) || true
+        {
+          echo "output<<EOF"
+          echo "$OUTPUT"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
