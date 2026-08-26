@@ -14,6 +14,25 @@ This tool automates that chase.
 ```bash
 export GITHUB_TOKEN=your_token_here  # optional, raises the API rate limit
 python explain.py path/to/file.py:42
+```
+
+## Use it as a GitHub Action
+
+Add this to a workflow in your own repo to explain a specific line
+(e.g. triggered by a `/explain path:line` comment on an issue or PR):
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0  # required: git blame needs full history
+
+- uses: jakep-me/code-context-explainer@main
+  id: explain
+  with:
+    target: src/app.py:42
+
+- run: echo "${{ steps.explain.outputs.result }}"
+```
 
 ## Current scope (v1)
 
@@ -27,6 +46,10 @@ python explain.py path/to/file.py:42
 - Non-GitHub issue trackers (e.g. Jira)
 - Squash-merged history where context is flattened
 - LLM-based natural language summaries (planned for v2)
+- Running inside a fork: PR/issue numbers resolve against the current
+  repo, so a reference inherited from the upstream repo (e.g. `#7505`
+  from `psf/requests`) won't be found in a fork. The number is still
+  reported, just without title/state/URL.
 
 ## Contributing
 
