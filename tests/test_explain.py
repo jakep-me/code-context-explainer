@@ -11,7 +11,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from explain import extract_references, parse_github_slug
+from explain import extract_references, parse_github_slug, build_summary_prompt
 
 
 class TestExtractReferences:
@@ -68,3 +68,26 @@ class TestParseGithubSlug:
 
     def test_malformed_url_returns_none(self):
         assert parse_github_slug("not a url") is None
+
+
+class TestBuildSummaryPrompt:
+    def test_includes_commit_summary(self):
+        blame_info = {"summary": "package refactor"}
+        prompt = build_summary_prompt(blame_info, [])
+        assert "package refactor" in prompt
+
+    def test_includes_ref_title_and_body(self):
+        blame_info = {"summary": "fix bug"}
+        ref_details = [
+            {"type": "PR", "number": 42, "title": "Fix the thing", "body": "details here"}
+        ]
+        prompt = build_summary_prompt(blame_info, ref_details)
+        assert "PR #42 title: Fix the thing" in prompt
+        assert "PR #42 body: details here" in prompt
+
+    def test_skips_empty_body(self):
+        blame_info = {"summary": "fix bug"}
+        ref_details = [{"type": "Issue", "number": 5, "title": "Bug report", "body": ""}]
+        prompt = build_summary_prompt(blame_info, ref_details)
+        assert "Issue #5 title: Bug report" in prompt
+        assert "body" not in prompt
