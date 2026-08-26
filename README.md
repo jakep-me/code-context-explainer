@@ -40,12 +40,13 @@ Add this to a workflow in your own repo to explain a specific line
 - Extracts PR/issue references like `#123` from the commit message
 - Fetches the linked PR/issue title, state, and URL via the GitHub API
 - If no reference is found, it says so explicitly instead of guessing
+- Optionally summarizes the "why" in one sentence via Claude, ChatGPT,
+  Gemini, or DeepSeek (see above)
 
 ## Not yet supported
 
 - Non-GitHub issue trackers (e.g. Jira)
 - Squash-merged history where context is flattened
-- LLM-based natural language summaries (planned for v2)
 - Running inside a fork: PR/issue numbers resolve against the current
   repo, so a reference inherited from the upstream repo (e.g. `#7505`
   from `psf/requests`) won't be found in a fork. The number is still
