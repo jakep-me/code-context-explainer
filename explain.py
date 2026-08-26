@@ -150,7 +150,123 @@ def fetch_github_issue_or_pr(repo_slug, number, token):
     }
 
 
-def format_output(filepath, line, blame_info, refs, ref_details):
+def call_anthropic(api_key, prompt):
+    """Call Claude (Anthropic Messages API)."""
+    url = "https://api.anthropic.com/v1/messages"
+    body = json.dumps({
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 200,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("x-api-key", api_key)
+    req.add_header("anthropic-version", "2023-06-01")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode())
+    return data["content"][0]["text"].strip()
+
+
+def call_openai(api_key, prompt):
+    """Call ChatGPT (OpenAI Chat Completions API)."""
+    url = "https://api.openai.com/v1/chat/completions"
+    body = json.dumps({
+        "model": "gpt-4o-mini",
+        "max_tokens": 200,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode())
+    return data["choices"][0]["message"]["content"].strip()
+
+
+def call_gemini(api_key, prompt):
+    """Call Gemini (Google Generative Language API)."""
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+    }).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode())
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
+def call_deepseek(api_key, prompt):
+    """Call DeepSeek (OpenAI-compatible chat completions API)."""
+    url = "https://api.deepseek.com/chat/completions"
+    body = json.dumps({
+        "model": "deepseek-chat",
+        "max_tokens": 200,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode())
+    return data["choices"][0]["message"]["content"].strip()
+
+
+# Provider name -> (env var holding the API key, function that calls it)
+LLM_PROVIDERS = {
+    "anthropic": ("ANTHROPIC_API_KEY", call_anthropic),
+    "openai": ("OPENAI_API_KEY", call_openai),
+    "gemini": ("GEMINI_API_KEY", call_gemini),
+    "deepseek": ("DEEPSEEK_API_KEY", call_deepseek),
+}
+
+
+def summarize_with_llm(prompt):
+    """Try to get a one-line natural-language summary from an LLM.
+
+    Selection:
+        - LLM_PROVIDER env var picks the provider explicitly
+          (anthropic | openai | gemini | deepseek).
+        - Otherwise, the first provider (in the order above) whose API
+          key env var is set gets used.
+        - If no key is set at all, this returns None silently — the
+          summary is purely additive, never required.
+    """
+    forced = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    candidates = [forced] if forced in LLM_PROVIDERS else list(LLM_PROVIDERS)
+
+    for name in candidates:
+        env_var, call_fn = LLM_PROVIDERS[name]
+        api_key = os.environ.get(env_var)
+        if not api_key:
+            continue
+        try:
+            return call_fn(api_key, prompt)
+        except Exception as e:
+            print(f"LLM summary via {name} failed: {e}", file=sys.stderr)
+            return None
+
+    return None  # no provider configured — that's fine, summary is optional
+
+
+def build_summary_prompt(blame_info, ref_details):
+    """Build the prompt sent to the LLM for the one-line summary."""
+    lines = [
+        "In one plain sentence, explain why this code change was made. "
+        "Be concise and factual, don't invent details not given below.",
+        f"Commit summary: {blame_info.get('summary', '')}",
+    ]
+    for ref in ref_details:
+        lines.append(f"{ref['type']} #{ref['number']} title: {ref['title']}")
+        if ref.get("body"):
+            lines.append(f"{ref['type']} #{ref['number']} body: {ref['body']}")
+    return "\n".join(lines)
+
+
+def format_output(filepath, line, blame_info, refs, ref_details, llm_summary=None):
     out = []
     out.append(f"File: {filepath}:{line}")
     out.append(f"Commit: {blame_info['commit'][:8]}")
@@ -170,6 +286,10 @@ def format_output(filepath, line, blame_info, refs, ref_details):
         marker = "closes" if ref["number"] in refs["closes"] else "related"
         out.append(f"-> [{marker}] {ref['type']} #{ref['number']} ({ref['state']}): {ref['title']}")
         out.append(f"   {ref['url']}")
+
+    if llm_summary:
+        out.append("")
+        out.append(f"Why (AI summary): {llm_summary}")
 
     return "\n".join(out)
 
@@ -216,7 +336,12 @@ def main():
                 if info:
                     ref_details.append(info)
 
-    print(format_output(filepath, line, blame_info, refs, ref_details))
+    llm_summary = None
+    if ref_details:
+        prompt = build_summary_prompt(blame_info, ref_details)
+        llm_summary = summarize_with_llm(prompt)
+
+    print(format_output(filepath, line, blame_info, refs, ref_details, llm_summary))
 
 
 if __name__ == "__main__":
