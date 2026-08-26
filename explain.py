@@ -85,6 +85,14 @@ def extract_references(text):
     return {"all": all_refs, "closes": closes_refs}
 
 
+def parse_github_slug(url):
+    """Parse owner/repo out of a GitHub remote URL. Pure function, no I/O."""
+    match = re.search(r"github\.com[:/]([^/]+)/([^/.]+?)(?:\.git)?$", url)
+    if not match:
+        return None
+    return f"{match.group(1)}/{match.group(2)}"
+
+
 def get_repo_slug():
     """Extract owner/repo from the current directory's git remote (GitHub only, v1)."""
     try:
@@ -97,11 +105,7 @@ def get_repo_slug():
     except subprocess.CalledProcessError:
         return None
 
-    url = result.stdout.strip()
-    match = re.search(r"github\.com[:/]([^/]+)/([^/.]+?)(?:\.git)?$", url)
-    if not match:
-        return None
-    return f"{match.group(1)}/{match.group(2)}"
+    return parse_github_slug(result.stdout.strip())
 
 
 def fetch_github_issue_or_pr(repo_slug, number, token):
