@@ -187,7 +187,7 @@ def call_gemini(api_key, prompt):
     """Call Gemini (Google Generative Language API)."""
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={api_key}"
+        f"gemini-2.5-flash:generateContent?key={api_key}"
     )
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
